@@ -1,0 +1,9 @@
+{
+  "name": "Gemini AI Camera",
+  "description": "An advanced, iOS-inspired web camera app with integrated Gemini AI for real-time analysis, voice interaction, and creative tasks.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
