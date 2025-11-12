@@ -118,8 +118,6 @@ const CameraView: React.FC = () => {
   const pinchDistRef = useRef<number>(0);
   const currentZoomRef = useRef<number>(1);
   const focusTimeoutRef = useRef<number | null>(null);
-  const isAnalyzingRef = useRef(false);
-  const visionLoopRef = useRef<number | null>(null);
 
   const handleCameraError = useCallback((err: any) => {
     let message = "An unknown error occurred while trying to access the camera. Please try again.";
@@ -227,47 +225,61 @@ const CameraView: React.FC = () => {
   
   // Vision Mode Analysis Loop
   useEffect(() => {
-    if (mode === 'vision' && stream && videoRef.current) {
-        const video = videoRef.current;
-        const captureCanvas = document.createElement('canvas');
-        const ctx = captureCanvas.getContext('2d', { willReadFrequently: true });
-        
-        const loop = async () => {
-            if (!isAnalyzingRef.current && video.readyState >= 2) {
-                isAnalyzingRef.current = true;
-                const captureWidth = 480;
-                captureCanvas.width = captureWidth;
-                captureCanvas.height = captureWidth / (video.videoWidth / video.videoHeight);
-                ctx?.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
-                
-                const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.5);
-                const base64Data = dataUrl.split(',')[1];
-                
-                try {
-                    const objects = await detectObjectsInImage({ mimeType: 'image/jpeg', data: base64Data });
-                    setDetectedObjects(prev => [...prev.filter(p => p.manual), ...objects]);
-                    setUniqueLabels(prev => {
-                        const newLabels = new Set(prev);
-                        objects.forEach(o => newLabels.add(o.label));
-                        return newLabels;
-                    });
-                } catch (e) {
-                    console.error("Object detection failed:", e);
-                } finally {
-                    isAnalyzingRef.current = false;
-                }
-            }
-            visionLoopRef.current = requestAnimationFrame(loop);
-        };
-        
-        visionLoopRef.current = requestAnimationFrame(loop);
-        
-        return () => {
-            if (visionLoopRef.current) cancelAnimationFrame(visionLoopRef.current);
-            setDetectedObjects([]);
-            isAnalyzingRef.current = false;
-        };
+    let timeoutId: number | null = null;
+    let isActive = true;
+
+    const analyzeFrame = async () => {
+      // If component is unmounted or conditions aren't right, stop the loop.
+      if (!isActive) return;
+      
+      if (!videoRef.current || videoRef.current.readyState < 2 || document.visibilityState !== 'visible') {
+        // If conditions are not met, reschedule the check after a delay without making an API call.
+        timeoutId = window.setTimeout(analyzeFrame, 2500);
+        return;
+      }
+
+      const video = videoRef.current;
+      const captureCanvas = document.createElement('canvas');
+      const ctx = captureCanvas.getContext('2d', { willReadFrequently: true });
+
+      const captureWidth = 480;
+      captureCanvas.width = captureWidth;
+      captureCanvas.height = captureWidth / (video.videoWidth / video.videoHeight);
+      ctx?.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+      
+      const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.5);
+      const base64Data = dataUrl.split(',')[1];
+      
+      try {
+        const objects = await detectObjectsInImage({ mimeType: 'image/jpeg', data: base64Data });
+        if (isActive) {
+            setDetectedObjects(prev => [...prev.filter(p => p.manual), ...objects]);
+            setUniqueLabels(prev => {
+                const newLabels = new Set(prev);
+                objects.forEach(o => newLabels.add(o.label));
+                return newLabels;
+            });
+        }
+      } catch (e) {
+        console.error("Object detection failed:", e);
+      } finally {
+        // Schedule the next analysis call only after the current one finishes.
+        if (isActive) {
+            timeoutId = window.setTimeout(analyzeFrame, 2500);
+        }
+      }
+    };
+
+    if (mode === 'vision' && stream) {
+      // Start the analysis loop after a short delay
+      timeoutId = window.setTimeout(analyzeFrame, 500);
     }
+
+    return () => {
+      isActive = false;
+      if (timeoutId) clearTimeout(timeoutId);
+      setDetectedObjects([]);
+    };
   }, [mode, stream]);
 
   const filteredObjects = useMemo(() => {
