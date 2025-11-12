@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../store';
@@ -9,10 +8,16 @@ import LiveConversationOverlay from './LiveConversationOverlay';
 import { SendIcon, MicIcon, CloseIcon, LoadingSpinner, SearchIcon, MapIcon } from './Icons';
 
 const ChatView: React.FC = () => {
-  const { imageForChat, clearImageForChat, initialChatPrompt, clearInitialChatPrompt } = useAppStore();
+  const { 
+    imageForChat, 
+    clearImageForChat, 
+    initialChatPrompt, 
+    clearInitialChatPrompt,
+    chatHistory,
+    addChatMessage,
+  } = useAppStore();
 
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
-  const [messages, setMessages] = useState<AiChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isLiveOpen, setIsLiveOpen] = useState(false);
@@ -37,7 +42,7 @@ const ChatView: React.FC = () => {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
-  useEffect(scrollToBottom, [messages]);
+  useEffect(scrollToBottom, [chatHistory]);
   
   useEffect(() => {
     if (useMaps && !location) {
@@ -55,7 +60,7 @@ const ChatView: React.FC = () => {
     if (input.trim() === '' || isLoading) return;
 
     const userMessage: AiChatMessage = { sender: 'user', text: input };
-    setMessages(prev => [...prev, userMessage]);
+    addChatMessage(userMessage);
     const currentInput = input;
     const currentImage = attachedImage;
     setInput('');
@@ -69,7 +74,7 @@ const ChatView: React.FC = () => {
         const newBase64 = await editImageWithPrompt(currentInput, { mimeType: 'image/jpeg', data: base64Data });
         setAttachedImage(`data:image/jpeg;base64,${newBase64}`);
         const botMessage: AiChatMessage = { sender: 'bot', text: "Here is the edited image." };
-        setMessages(prev => [...prev, botMessage]);
+        addChatMessage(botMessage);
       } else {
         const imagePart = currentImage ? { mimeType: 'image/jpeg', data: currentImage.split(',')[1] } : null;
         const response = await generateChatResponse(currentInput, imagePart, { useSearch, useMaps, location: location ?? undefined });
@@ -86,7 +91,7 @@ const ChatView: React.FC = () => {
         }).filter((s: any): s is GroundingSource => s !== null) ?? [];
         
         const botMessage: AiChatMessage = { sender: 'bot', text: response.text, sources };
-        setMessages(prev => [...prev, botMessage]);
+        addChatMessage(botMessage);
       }
       
       if(attachedImage){
@@ -97,7 +102,7 @@ const ChatView: React.FC = () => {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
       const errorBotMessage: AiChatMessage = { sender: 'bot', text: `Error: ${errorMessage}` };
-      setMessages(prev => [...prev, errorBotMessage]);
+      addChatMessage(errorBotMessage);
     } finally {
       setIsLoading(false);
     }
@@ -113,13 +118,13 @@ const ChatView: React.FC = () => {
         <h1 className="text-xl font-bold text-center text-white fixed top-0 left-0 right-0 py-4 bg-black/80 backdrop-blur-md z-10">AI Chat</h1>
 
         <div className="flex-1 p-4 overflow-y-auto space-y-4">
-            {messages.length === 0 && !attachedImage && (
+            {chatHistory.length === 0 && !attachedImage && (
                 <div className="h-full flex flex-col justify-center items-center text-center text-gray-400">
                     <p className="text-lg">Welcome to AI Chat</p>
                     <p className="text-sm">Go to the Camera tab and use VISION mode to start a conversation about an image.</p>
                 </div>
             )}
-            {messages.map((msg, index) => {
+            {chatHistory.map((msg, index) => {
               const isUser = msg.sender === 'user';
               return (
                 <motion.div

@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Modality, GenerateContentResponse, Content, Type } from '@google/genai';
 import type { DetectedObject } from '../types';
 
@@ -124,7 +123,15 @@ export const detectObjectsInImage = async (image: ImagePart): Promise<DetectedOb
             score: {
                 type: Type.NUMBER,
                 description: 'A confidence score for the detection, from 0.0 to 1.0.'
-            }
+            },
+            category: {
+                type: Type.STRING,
+                description: 'A broad category for the object (e.g., "Vehicle", "Animal", "Food").'
+            },
+            description: {
+                type: Type.STRING,
+                description: 'A detailed, one-sentence description of the object.'
+            },
           },
           required: ['label', 'box', 'score'],
         },
@@ -135,13 +142,13 @@ export const detectObjectsInImage = async (image: ImagePart): Promise<DetectedOb
         contents: {
             parts: [
                 { inlineData: image },
-                { text: 'Detect all distinct objects in the image. For each object, provide a descriptive label, a precise bounding box with normalized coordinates, and a confidence score.' },
+                { text: 'Detect all distinct objects in the image. For each object, provide a descriptive label, a precise bounding box with normalized coordinates, a confidence score, a broad category (e.g., "Vehicle", "Animal", "Food"), and a detailed one-sentence description.' },
             ],
         },
         config: {
             responseMimeType: "application/json",
             responseSchema,
-            systemInstruction: 'You are an expert object detection model. Your task is to identify objects in an image and return their labels, bounding boxes, and confidence scores in JSON format according to the provided schema. Only return objects you are confident about.',
+            systemInstruction: 'You are an expert object detection model. Your task is to identify objects in an image and return their labels, categories, bounding boxes, and confidence scores in JSON format according to the provided schema. Only return objects you are confident about.',
         },
     });
 

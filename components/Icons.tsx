@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { cn } from '../utils/cn';
 
@@ -70,8 +69,8 @@ export const LoadingSpinner = () => (
     </svg>
 );
 
-export const ChatIcon = ({ isActive }: { isActive: boolean }) => (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+export const ChatIcon = ({ isActive, width = 28, height = 28 }: { isActive: boolean; width?: number; height?: number }) => (
+    <svg width={width} height={height} viewBox="0 0 24 24" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
     </svg>
 );
@@ -135,6 +134,29 @@ export const BoundingBoxIcon = ({isActive}: {isActive: boolean}) => (
         <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
         <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
         {isActive && <path d="M12 8v8m-4-4h8" />}
+    </svg>
+);
+
+export const InfoIcon = ({className}: {className?: string}) => (
+    <svg className={cn(className)} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="16" x2="12" y2="12" />
+        <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+);
+
+export const CategoryIcon = ({className}: {className?: string}) => (
+    <svg className={cn(className)} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+        <line x1="7" y1="7" x2="7.01" y2="7" />
+    </svg>
+);
+
+export const PercentIcon = ({className}: {className?: string}) => (
+    <svg className={cn(className)} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="19" y1="5" x2="5" y2="19" />
+        <circle cx="6.5" cy="6.5" r="2.5" />
+        <circle cx="17.5" cy="17.5" r="2.5" />
     </svg>
 );
 

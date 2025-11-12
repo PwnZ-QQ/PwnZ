@@ -1,10 +1,9 @@
-
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { CameraMode, FlashMode, GalleryItem, DetectedObject } from '../types';
 import CameraControls from './CameraControls';
 import VisionControls from './VisionControls';
-import { FlashOnIcon, FlashOffIcon, FlashAutoIcon, CloseIcon } from './Icons';
+import { FlashOnIcon, FlashOffIcon, FlashAutoIcon, CloseIcon, InfoIcon, CategoryIcon, PercentIcon, ChatIcon } from './Icons';
 import { useAppStore } from '../store';
 import { cn } from '../utils/cn';
 import { playSound } from '../utils/audioCues';
@@ -17,6 +16,7 @@ const formatTime = (seconds: number) => {
 };
 
 type ResolutionKey = 'default' | 'hd' | 'fhd' | 'uhd';
+type VideoQualityKey = '720p' | '1080p' | '4k';
 type AspectRatioKey = '4:3' | '16:9' | '1:1';
 
 const RESOLUTION_OPTIONS: Record<ResolutionKey, { label: string; constraints: MediaTrackConstraints }> = {
@@ -26,6 +26,13 @@ const RESOLUTION_OPTIONS: Record<ResolutionKey, { label: string; constraints: Me
   'uhd': { label: '4K', constraints: { width: { ideal: 3840 }, height: { ideal: 2160 } } },
 };
 const RESOLUTION_ORDER: ResolutionKey[] = ['default', 'hd', 'fhd', 'uhd'];
+
+const VIDEO_QUALITY_OPTIONS: Record<VideoQualityKey, { label: string; constraints: MediaTrackConstraints }> = {
+  '720p': { label: '720p', constraints: { width: { ideal: 1280 }, height: { ideal: 720 } } },
+  '1080p': { label: '1080p', constraints: { width: { ideal: 1920 }, height: { ideal: 1080 } } },
+  '4k': { label: '4K', constraints: { width: { ideal: 3840 }, height: { ideal: 2160 } } },
+};
+const VIDEO_QUALITY_ORDER: VideoQualityKey[] = ['720p', '1080p', '4k'];
 
 const ASPECT_RATIO_OPTIONS: Record<AspectRatioKey, { label: string; value: number }> = {
     '4:3': { label: '4:3', value: 4/3 },
@@ -84,6 +91,7 @@ const CameraView: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [selectedResolution, setSelectedResolution] = useState<ResolutionKey>('hd');
+  const [selectedVideoQuality, setSelectedVideoQuality] = useState<VideoQualityKey>('1080p');
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatioKey>('4:3');
 
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -98,6 +106,7 @@ const CameraView: React.FC = () => {
   const [taggingBox, setTaggingBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const [taggingStart, setTaggingStart] = useState<{ x: number; y: number } | null>(null);
   const [showTagInput, setShowTagInput] = useState(false);
+  const [selectedObject, setSelectedObject] = useState<DetectedObject | null>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -128,7 +137,9 @@ const CameraView: React.FC = () => {
                 message = "The camera is currently unavailable. It might be in use by another application or there's a hardware issue. Please close other apps and try again.";
                 break;
             case 'OverconstrainedError':
-                message = `The selected settings (${RESOLUTION_OPTIONS[selectedResolution].label}, ${ASPECT_RATIO_OPTIONS[selectedAspectRatio].label}) are not supported by your device. Please try a different combination of settings.`;
+                message = mode === 'video'
+                    ? `The selected video quality (${VIDEO_QUALITY_OPTIONS[selectedVideoQuality].label}) is not supported by your device.`
+                    : `The selected settings (${RESOLUTION_OPTIONS[selectedResolution].label}, ${ASPECT_RATIO_OPTIONS[selectedAspectRatio].label}) are not supported by your device. Please try a different combination of settings.`;
                 break;
             case 'AbortError':
                  message = "The request for camera access was aborted. This can happen if you switch settings too quickly.";
@@ -144,7 +155,7 @@ const CameraView: React.FC = () => {
     }
     console.error("Camera access failed:", err);
     setCameraError(message);
-  }, [selectedResolution, selectedAspectRatio]);
+  }, [selectedResolution, selectedAspectRatio, selectedVideoQuality, mode]);
 
   useEffect(() => {
     let active = true;
@@ -155,12 +166,21 @@ const CameraView: React.FC = () => {
             stream.getTracks().forEach(track => track.stop());
         }
 
-        const videoConstraints: MediaTrackConstraints = {
+        let videoConstraints: MediaTrackConstraints = {
             facingMode,
-            ...RESOLUTION_OPTIONS[selectedResolution].constraints
         };
-        if (mode !== 'video') {
-           videoConstraints.aspectRatio = { ideal: ASPECT_RATIO_OPTIONS[selectedAspectRatio].value };
+
+        if (mode === 'video') {
+            videoConstraints = {
+                ...videoConstraints,
+                ...VIDEO_QUALITY_OPTIONS[selectedVideoQuality].constraints,
+            };
+        } else { // photo or vision
+            videoConstraints = {
+                ...videoConstraints,
+                ...RESOLUTION_OPTIONS[selectedResolution].constraints,
+                aspectRatio: { ideal: ASPECT_RATIO_OPTIONS[selectedAspectRatio].value },
+            };
         }
 
         let newStream: MediaStream | null = null;
@@ -203,7 +223,7 @@ const CameraView: React.FC = () => {
 
     startCamera();
     return () => { active = false; };
-  }, [facingMode, selectedResolution, selectedAspectRatio, mode, retryCount, handleCameraError]);
+  }, [facingMode, selectedResolution, selectedAspectRatio, selectedVideoQuality, mode, retryCount, handleCameraError]);
   
   // Vision Mode Analysis Loop
   useEffect(() => {
@@ -364,6 +384,9 @@ const CameraView: React.FC = () => {
     if (!stream || !isFlashAvailable) return;
     const track = stream.getVideoTracks()[0];
     if (track && track.readyState === 'live') {
+      // NOTE: For video streams, 'auto' flash is not supported by browsers via `torch`.
+      // The `torch` constraint is a simple boolean (on/off). We interpret 'auto' as 'off'.
+      // The user can manually toggle the torch on if needed.
       const torchState = flashMode === 'on';
       track.applyConstraints({ advanced: [{ torch: torchState }] } as any)
         .catch(e => console.error("Could not apply flash constraints:", e));
@@ -387,6 +410,12 @@ const CameraView: React.FC = () => {
       if (isRecording) return;
       const currentIndex = RESOLUTION_ORDER.indexOf(selectedResolution);
       setSelectedResolution(RESOLUTION_ORDER[(currentIndex + 1) % RESOLUTION_ORDER.length]);
+  };
+
+  const handleCycleVideoQuality = () => {
+    if (isRecording) return;
+    const currentIndex = VIDEO_QUALITY_ORDER.indexOf(selectedVideoQuality);
+    setSelectedVideoQuality(VIDEO_QUALITY_ORDER[(currentIndex + 1) % VIDEO_QUALITY_ORDER.length]);
   };
 
   const handleCycleAspectRatio = () => {
@@ -539,7 +568,7 @@ const CameraView: React.FC = () => {
             if (tappedObject) {
                 e.preventDefault();
                 playSound('start');
-                captureAndChatAboutObject(tappedObject);
+                setSelectedObject(tappedObject);
                 return;
             }
         }
@@ -609,13 +638,8 @@ const CameraView: React.FC = () => {
             setIsTagging(false);
             return;
         }
-        const normalizedBox = {
-            x1: finalBoxRaw.x1 / rect.width,
-            y1: finalBoxRaw.y1 / rect.height,
-            x2: finalBoxRaw.x2 / rect.width,
-            y2: finalBoxRaw.y2 / rect.height,
-        };
-        setTaggingBox(normalizedBox);
+        
+        setTaggingBox(finalBoxRaw);
         setTaggingStart(null);
         setShowTagInput(true);
       }
@@ -623,10 +647,17 @@ const CameraView: React.FC = () => {
   
   const handleSaveTag = () => {
     const label = tagInputRef.current?.value.trim();
-    if (label && taggingBox) {
+    const video = videoRef.current;
+    if (label && taggingBox && video) {
+        const rect = video.getBoundingClientRect();
         const newObject: DetectedObject = {
             label,
-            box: taggingBox,
+            box: {
+                x1: taggingBox.x1 / rect.width,
+                y1: taggingBox.y1 / rect.height,
+                x2: taggingBox.x2 / rect.width,
+                y2: taggingBox.y2 / rect.height,
+            },
             manual: true,
             score: 1.0,
         };
@@ -733,26 +764,39 @@ const CameraView: React.FC = () => {
               onClick={handleToggleFlash}
               disabled={!isFlashAvailable || isRecording || !!cameraError}
               className="text-white p-2 rounded-full bg-black/30 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-              aria-label={`Turn flash ${flashMode}`}
+              aria-label={`Flash mode is ${flashMode}. Tap to change.`}
             >
               {renderFlashIcon()}
             </button>
-            <button
-                onClick={handleCycleResolution}
-                disabled={isRecording || !!cameraError}
-                className="text-white text-xs font-bold px-3 py-2 rounded-full bg-black/30 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                aria-label={`Set resolution to ${RESOLUTION_OPTIONS[selectedResolution].label}`}
-            >
-                {RESOLUTION_OPTIONS[selectedResolution].label}
-            </button>
-             <button
-                onClick={handleCycleAspectRatio}
-                disabled={isRecording || mode === 'video' || !!cameraError}
-                className="text-white text-xs font-bold px-3 py-2 rounded-full bg-black/30 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                aria-label={`Set aspect ratio to ${ASPECT_RATIO_OPTIONS[selectedAspectRatio].label}`}
-            >
-                {ASPECT_RATIO_OPTIONS[selectedAspectRatio].label}
-            </button>
+            {mode === 'video' ? (
+                <button
+                    onClick={handleCycleVideoQuality}
+                    disabled={isRecording || !!cameraError}
+                    className="text-white text-xs font-bold px-3 py-2 rounded-full bg-black/30 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label={`Set video quality to ${VIDEO_QUALITY_OPTIONS[selectedVideoQuality].label}`}
+                >
+                    {VIDEO_QUALITY_OPTIONS[selectedVideoQuality].label}
+                </button>
+            ) : (
+                <>
+                    <button
+                        onClick={handleCycleResolution}
+                        disabled={isRecording || !!cameraError}
+                        className="text-white text-xs font-bold px-3 py-2 rounded-full bg-black/30 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label={`Set resolution to ${RESOLUTION_OPTIONS[selectedResolution].label}`}
+                    >
+                        {RESOLUTION_OPTIONS[selectedResolution].label}
+                    </button>
+                    <button
+                        onClick={handleCycleAspectRatio}
+                        disabled={isRecording || !!cameraError}
+                        className="text-white text-xs font-bold px-3 py-2 rounded-full bg-black/30 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label={`Set aspect ratio to ${ASPECT_RATIO_OPTIONS[selectedAspectRatio].label}`}
+                    >
+                        {ASPECT_RATIO_OPTIONS[selectedAspectRatio].label}
+                    </button>
+                </>
+            )}
         </div>
         {isRecording && (
           <div className="flex items-center space-x-2 bg-black/50 px-3 py-1 rounded-full">
@@ -805,6 +849,73 @@ const CameraView: React.FC = () => {
                   </div>
               </motion.div>
           )}
+      </AnimatePresence>
+      
+      <AnimatePresence>
+        {selectedObject && (
+            <motion.div
+                className="absolute inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSelectedObject(null)}
+            >
+                <motion.div
+                    className="bg-gray-800 p-6 rounded-2xl w-full max-w-sm text-white"
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.9, opacity: 0 }}
+                    transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                    onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
+                >
+                    <div className="flex justify-between items-start mb-4">
+                        <h2 className="text-2xl font-bold text-yellow-400 capitalize">{selectedObject.label}</h2>
+                        <button onClick={() => setSelectedObject(null)} className="p-1 -mr-1 -mt-1"><CloseIcon /></button>
+                    </div>
+
+                    <div className="space-y-4 text-sm">
+                        {selectedObject.category && (
+                            <div className="flex items-start">
+                                <CategoryIcon className="w-5 h-5 mr-3 mt-0.5 text-gray-400" />
+                                <div>
+                                    <p className="font-semibold text-gray-400">Category</p>
+                                    <p>{selectedObject.category}</p>
+                                </div>
+                            </div>
+                        )}
+                        {selectedObject.score && !selectedObject.manual && (
+                            <div className="flex items-start">
+                                <PercentIcon className="w-5 h-5 mr-3 mt-0.5 text-gray-400" />
+                                <div>
+                                    <p className="font-semibold text-gray-400">Confidence</p>
+                                    <p>{(selectedObject.score * 100).toFixed(0)}%</p>
+                                </div>
+                            </div>
+                        )}
+                        {selectedObject.description && (
+                            <div className="flex items-start">
+                                <InfoIcon className="w-5 h-5 mr-3 mt-0.5 text-gray-400" />
+                                <div>
+                                    <p className="font-semibold text-gray-400">Description</p>
+                                    <p>{selectedObject.description}</p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    
+                    <button
+                        onClick={() => {
+                            if (selectedObject) captureAndChatAboutObject(selectedObject);
+                            setSelectedObject(null);
+                        }}
+                        className="mt-6 w-full bg-yellow-500 text-black font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
+                    >
+                        <ChatIcon isActive={false} width={20} height={20} />
+                        <span>Chat about this</span>
+                    </button>
+                </motion.div>
+            </motion.div>
+        )}
       </AnimatePresence>
 
       <div className="absolute bottom-24 left-0 right-0 z-10">
