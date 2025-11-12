@@ -1,11 +1,14 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { CameraMode, FlashMode, GalleryItem, MediaType } from '../types';
+import { CameraMode, FlashMode, GalleryItem, DetectedObject } from '../types';
 import CameraControls from './CameraControls';
-import { FlashOnIcon, FlashOffIcon, FlashAutoIcon } from './Icons';
+import VisionControls from './VisionControls';
+import { FlashOnIcon, FlashOffIcon, FlashAutoIcon, CloseIcon } from './Icons';
 import { useAppStore } from '../store';
 import { cn } from '../utils/cn';
 import { playSound } from '../utils/audioCues';
+import { detectObjectsInImage } from '../services/geminiService';
 
 const formatTime = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
@@ -64,7 +67,7 @@ const triggerHapticFeedback = (duration: number | number[]) => {
 };
 
 const CameraView: React.FC = () => {
-  const { setImageForChat, addToGallery } = useAppStore();
+  const { addToGallery, setImageForChat } = useAppStore();
   const [mode, setMode] = useState<CameraMode>('photo');
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -85,15 +88,29 @@ const CameraView: React.FC = () => {
 
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
-
+  
+  // Vision mode state
+  const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
+  const [sensitivity, setSensitivity] = useState(0.5);
+  const [uniqueLabels, setUniqueLabels] = useState<Set<string>>(new Set());
+  const [activeFilterLabels, setActiveFilterLabels] = useState<Set<string>>(new Set());
+  const [isTagging, setIsTagging] = useState(false);
+  const [taggingBox, setTaggingBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [taggingStart, setTaggingStart] = useState<{ x: number; y: number } | null>(null);
+  const [showTagInput, setShowTagInput] = useState(false);
+  const tagInputRef = useRef<HTMLInputElement>(null);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<number | null>(null);
   const pinchDistRef = useRef<number>(0);
   const currentZoomRef = useRef<number>(1);
   const focusTimeoutRef = useRef<number | null>(null);
+  const isAnalyzingRef = useRef(false);
+  const visionLoopRef = useRef<number | null>(null);
 
   const handleCameraError = useCallback((err: any) => {
     let message = "An unknown error occurred while trying to access the camera. Please try again.";
@@ -187,6 +204,124 @@ const CameraView: React.FC = () => {
     startCamera();
     return () => { active = false; };
   }, [facingMode, selectedResolution, selectedAspectRatio, mode, retryCount, handleCameraError]);
+  
+  // Vision Mode Analysis Loop
+  useEffect(() => {
+    if (mode === 'vision' && stream && videoRef.current) {
+        const video = videoRef.current;
+        const captureCanvas = document.createElement('canvas');
+        const ctx = captureCanvas.getContext('2d', { willReadFrequently: true });
+        
+        const loop = async () => {
+            if (!isAnalyzingRef.current && video.readyState >= 2) {
+                isAnalyzingRef.current = true;
+                const captureWidth = 480;
+                captureCanvas.width = captureWidth;
+                captureCanvas.height = captureWidth / (video.videoWidth / video.videoHeight);
+                ctx?.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+                
+                const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.5);
+                const base64Data = dataUrl.split(',')[1];
+                
+                try {
+                    const objects = await detectObjectsInImage({ mimeType: 'image/jpeg', data: base64Data });
+                    setDetectedObjects(prev => [...prev.filter(p => p.manual), ...objects]);
+                    setUniqueLabels(prev => {
+                        const newLabels = new Set(prev);
+                        objects.forEach(o => newLabels.add(o.label));
+                        return newLabels;
+                    });
+                } catch (e) {
+                    console.error("Object detection failed:", e);
+                } finally {
+                    isAnalyzingRef.current = false;
+                }
+            }
+            visionLoopRef.current = requestAnimationFrame(loop);
+        };
+        
+        visionLoopRef.current = requestAnimationFrame(loop);
+        
+        return () => {
+            if (visionLoopRef.current) cancelAnimationFrame(visionLoopRef.current);
+            setDetectedObjects([]);
+            isAnalyzingRef.current = false;
+        };
+    }
+  }, [mode, stream]);
+
+  const filteredObjects = useMemo(() => {
+    let objects = detectedObjects.filter(obj => obj.manual || (obj.score ?? 1.0) >= sensitivity);
+    if (activeFilterLabels.size > 0) {
+        objects = objects.filter(obj => activeFilterLabels.has(obj.label));
+    }
+    return objects;
+  }, [detectedObjects, sensitivity, activeFilterLabels]);
+
+  // Drawing overlay for Vision Mode
+  useEffect(() => {
+    const canvas = overlayCanvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const draw = () => {
+        const rect = video.getBoundingClientRect();
+        if (canvas.width !== rect.width || canvas.height !== rect.height) {
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        if (mode === 'vision') {
+            // Draw detected objects
+            filteredObjects.forEach(obj => {
+                const { x1, y1, x2, y2 } = obj.box;
+                const x = x1 * canvas.width;
+                const y = y1 * canvas.height;
+                const width = (x2 - x1) * canvas.width;
+                const height = (y2 - y1) * canvas.height;
+                
+                const color = obj.manual ? '#4ade80' : '#facc15';
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, width, height);
+                
+                ctx.fillStyle = color;
+                ctx.font = 'bold 14px sans-serif';
+                ctx.textBaseline = 'bottom';
+                const text = `${obj.label}${obj.score ? ` (${(obj.score*100).toFixed(0)}%)` : ''}`;
+                const textMetrics = ctx.measureText(text);
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                ctx.fillRect(x, y - 20, textMetrics.width + 8, 20);
+                ctx.fillStyle = color;
+                ctx.fillText(text, x + 4, y - 2);
+            });
+            // Draw manual tagging box
+            if (isTagging && taggingBox) {
+                ctx.strokeStyle = '#facc15';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.strokeRect(taggingBox.x1, taggingBox.y1, taggingBox.x2 - taggingBox.x1, taggingBox.y2 - taggingBox.y1);
+                ctx.setLineDash([]);
+            }
+        }
+    };
+    
+    let animationFrameId = requestAnimationFrame(draw);
+    const resizeObserver = new ResizeObserver(() => {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = requestAnimationFrame(draw);
+    });
+    resizeObserver.observe(video);
+
+    return () => {
+        cancelAnimationFrame(animationFrameId);
+        resizeObserver.unobserve(video);
+    }
+  }, [filteredObjects, mode, isTagging, taggingBox]);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -292,14 +427,43 @@ const CameraView: React.FC = () => {
             playSound('shutter');
             const item: GalleryItem = { type: 'photo', src: dataUrl };
             setLastCapture(item);
-            if (mode === 'vision') {
-                setImageForChat(dataUrl);
-            } else if (mode === 'photo') {
-                addToGallery(item);
-            }
+            addToGallery(item);
         }
     }
-  }, [mode, setImageForChat, facingMode, addToGallery, selectedAspectRatio]);
+  }, [facingMode, addToGallery, selectedAspectRatio]);
+  
+  const captureAndChatAboutObject = useCallback((object: DetectedObject) => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const videoAspectRatio = video.videoWidth / video.videoHeight;
+      const targetAspectRatio = ASPECT_RATIO_OPTIONS[selectedAspectRatio].value;
+      let sx = 0, sy = 0, sWidth = video.videoWidth, sHeight = video.videoHeight;
+      if (videoAspectRatio > targetAspectRatio) {
+          sWidth = video.videoHeight * targetAspectRatio;
+          sx = (video.videoWidth - sWidth) / 2;
+      } else {
+          sHeight = video.videoWidth / targetAspectRatio;
+          sy = (video.videoHeight - sHeight) / 2;
+      }
+      canvas.width = sWidth;
+      canvas.height = sHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+          if (facingMode === 'user') {
+              ctx.save();
+              ctx.scale(-1, 1);
+              ctx.drawImage(video, sx, sy, sWidth, sHeight, -sWidth, 0, sWidth, sHeight);
+              ctx.restore();
+          } else {
+              ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+          }
+          const dataUrl = canvas.toDataURL('image/jpeg');
+          setImageForChat(dataUrl, `Tell me more about the ${object.label} in this image.`);
+      }
+    }
+  }, [facingMode, selectedAspectRatio, setImageForChat]);
+
 
   const startRecording = () => {
     if (!stream || isRecording) return;
@@ -339,7 +503,7 @@ const CameraView: React.FC = () => {
   };
   
   const handleShutter = () => {
-    if (cameraError) return;
+    if (cameraError || mode === 'vision') return;
     if (mode === 'video') {
       isRecording ? stopRecording() : startRecording();
     } else {
@@ -349,22 +513,47 @@ const CameraView: React.FC = () => {
 
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
     if (isRecording || cameraError) return;
+    const video = videoRef.current;
+    if (!video) return;
+    const rect = video.getBoundingClientRect();
+    const touch = e.touches[0];
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+
+    if (mode === 'vision') {
+        if (isTagging) {
+            if (x >= 0 && y >= 0 && x <= rect.width && y <= rect.height) {
+                setTaggingStart({ x, y });
+                setTaggingBox({ x1: x, y1: y, x2: x, y2: y });
+            }
+            return;
+        }
+
+        if (e.touches.length === 1) {
+            const normalizedX = x / rect.width;
+            const normalizedY = y / rect.height;
+            const tappedObject = [...filteredObjects].reverse().find(obj => {
+                const { x1, y1, x2, y2 } = obj.box;
+                return normalizedX >= x1 && normalizedX <= x2 && normalizedY >= y1 && normalizedY <= y2;
+            });
+            if (tappedObject) {
+                e.preventDefault();
+                playSound('start');
+                captureAndChatAboutObject(tappedObject);
+                return;
+            }
+        }
+    }
+      
     if (e.touches.length === 2 && zoomRange) {
         e.preventDefault();
         pinchDistRef.current = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
-    } else if (e.touches.length === 1 && isFocusPointSupported && videoRef.current) {
-        const video = videoRef.current;
-        const rect = video.getBoundingClientRect();
-        const x = e.touches[0].clientX - rect.left;
-        const y = e.touches[0].clientY - rect.top;
-        
+    } else if (e.touches.length === 1 && isFocusPointSupported) {
         setFocusIndicator({ x, y, visible: true });
         setFocusState('focusing');
         triggerHapticFeedback(50);
-
         const track = stream?.getVideoTracks()[0];
         track?.applyConstraints({ advanced: [{ pointsOfInterest: [{ x: x/rect.width, y: y/rect.height }] }] } as any).catch(err => console.error("Focus failed: ", err));
-
         if (focusTimeoutRef.current) window.clearTimeout(focusTimeoutRef.current);
         focusTimeoutRef.current = window.setTimeout(() => {
             setFocusState('focused');
@@ -379,6 +568,15 @@ const CameraView: React.FC = () => {
 
   const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
     if (isRecording || cameraError) return;
+    if (mode === 'vision' && isTagging && taggingStart && videoRef.current) {
+        const video = videoRef.current;
+        const rect = video.getBoundingClientRect();
+        const touch = e.touches[0];
+        const x = Math.max(0, Math.min(rect.width, touch.clientX - rect.left));
+        const y = Math.max(0, Math.min(rect.height, touch.clientY - rect.top));
+        setTaggingBox({ x1: taggingStart.x, y1: taggingStart.y, x2: x, y2: y });
+        return;
+    }
     if (e.touches.length === 2 && pinchDistRef.current > 0 && zoomRange && stream) {
         e.preventDefault();
         const newDist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
@@ -395,6 +593,61 @@ const CameraView: React.FC = () => {
 
   const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
       if (pinchDistRef.current > 0) pinchDistRef.current = 0;
+      if (mode === 'vision' && isTagging && taggingStart && taggingBox && videoRef.current) {
+        const video = videoRef.current;
+        const rect = video.getBoundingClientRect();
+        const finalBoxRaw = {
+            x1: Math.min(taggingStart.x, taggingBox.x2),
+            y1: Math.min(taggingStart.y, taggingBox.y2),
+            x2: Math.max(taggingStart.x, taggingBox.x2),
+            y2: Math.max(taggingStart.y, taggingBox.y2),
+        };
+        if ((finalBoxRaw.x2 - finalBoxRaw.x1) < 10 || (finalBoxRaw.y2 - finalBoxRaw.y1) < 10) {
+            // Box is too small, cancel
+            setTaggingBox(null);
+            setTaggingStart(null);
+            setIsTagging(false);
+            return;
+        }
+        const normalizedBox = {
+            x1: finalBoxRaw.x1 / rect.width,
+            y1: finalBoxRaw.y1 / rect.height,
+            x2: finalBoxRaw.x2 / rect.width,
+            y2: finalBoxRaw.y2 / rect.height,
+        };
+        setTaggingBox(normalizedBox);
+        setTaggingStart(null);
+        setShowTagInput(true);
+      }
+  };
+  
+  const handleSaveTag = () => {
+    const label = tagInputRef.current?.value.trim();
+    if (label && taggingBox) {
+        const newObject: DetectedObject = {
+            label,
+            box: taggingBox,
+            manual: true,
+            score: 1.0,
+        };
+        setDetectedObjects(prev => [...prev, newObject]);
+        setUniqueLabels(prev => new Set(prev).add(label));
+    }
+    setShowTagInput(false);
+    setTaggingBox(null);
+    setIsTagging(false);
+  };
+  
+  const handleFilterToggle = (label: string) => {
+    setActiveFilterLabels(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(label)) {
+            newSet.delete(label);
+        } else {
+            newSet.add(label);
+        }
+        return newSet;
+    });
   };
 
   const handleRetry = () => {
@@ -439,6 +692,10 @@ const CameraView: React.FC = () => {
                   cameraError && "blur-md"
                 )}
                 style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)' }}
+            />
+            <canvas 
+                ref={overlayCanvasRef} 
+                className="absolute top-0 left-0 w-full h-full pointer-events-none"
             />
         </div>
       </div>
@@ -506,6 +763,50 @@ const CameraView: React.FC = () => {
         <div className="w-10"></div>
       </div>
       
+      <AnimatePresence>
+        {mode === 'vision' && !cameraError && (
+            <VisionControls 
+                sensitivity={sensitivity}
+                onSensitivityChange={setSensitivity}
+                uniqueLabels={Array.from(uniqueLabels).sort()}
+                activeFilterLabels={activeFilterLabels}
+                onFilterToggle={handleFilterToggle}
+                onManualTag={() => setIsTagging(!isTagging)}
+                isTagging={isTagging}
+            />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+          {showTagInput && (
+              <motion.div 
+                className="absolute inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                  <div className="bg-gray-800 p-4 rounded-lg w-full max-w-sm">
+                      <div className="flex justify-between items-center mb-4">
+                          <h3 className="font-bold text-white">Add a Tag</h3>
+                          <button onClick={() => { setShowTagInput(false); setTaggingBox(null); setIsTagging(false); }}>
+                            <CloseIcon />
+                          </button>
+                      </div>
+                      <input 
+                        ref={tagInputRef}
+                        type="text" 
+                        placeholder="Enter object label..."
+                        className="w-full bg-gray-700 text-white p-2 rounded mb-4"
+                        autoFocus
+                      />
+                      <button onClick={handleSaveTag} className="w-full bg-yellow-500 text-black font-bold py-2 rounded">
+                          Save Tag
+                      </button>
+                  </div>
+              </motion.div>
+          )}
+      </AnimatePresence>
+
       <div className="absolute bottom-24 left-0 right-0 z-10">
           <CameraControls
             mode={mode}

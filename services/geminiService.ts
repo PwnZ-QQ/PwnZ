@@ -1,4 +1,6 @@
-import { GoogleGenAI, Modality, GenerateContentResponse, Content } from '@google/genai';
+
+import { GoogleGenAI, Modality, GenerateContentResponse, Content, Type } from '@google/genai';
+import type { DetectedObject } from '../types';
 
 const getAiClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 
@@ -95,4 +97,68 @@ export const textToSpeech = async (text: string): Promise<string> => {
     
     // The Gemini API for TTS returns raw PCM audio data.
     return base64Audio;
+};
+
+export const detectObjectsInImage = async (image: ImagePart): Promise<DetectedObject[]> => {
+    const ai = getAiClient();
+
+    const responseSchema = {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            label: {
+              type: Type.STRING,
+              description: 'A short, descriptive label for the detected object (e.g., "blue car", "dog").',
+            },
+            box: {
+              type: Type.OBJECT,
+              properties: {
+                  x1: { type: Type.NUMBER, description: 'Normalized top-left x-coordinate (0-1).' },
+                  y1: { type: Type.NUMBER, description: 'Normalized top-left y-coordinate (0-1).' },
+                  x2: { type: Type.NUMBER, description: 'Normalized bottom-right x-coordinate (0-1).' },
+                  y2: { type: Type.NUMBER, description: 'Normalized bottom-right y-coordinate (0-1).' },
+              },
+              required: ['x1', 'y1', 'x2', 'y2'],
+            },
+            score: {
+                type: Type.NUMBER,
+                description: 'A confidence score for the detection, from 0.0 to 1.0.'
+            }
+          },
+          required: ['label', 'box', 'score'],
+        },
+      };
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: {
+            parts: [
+                { inlineData: image },
+                { text: 'Detect all distinct objects in the image. For each object, provide a descriptive label, a precise bounding box with normalized coordinates, and a confidence score.' },
+            ],
+        },
+        config: {
+            responseMimeType: "application/json",
+            responseSchema,
+            systemInstruction: 'You are an expert object detection model. Your task is to identify objects in an image and return their labels, bounding boxes, and confidence scores in JSON format according to the provided schema. Only return objects you are confident about.',
+        },
+    });
+
+    try {
+        const jsonString = response.text.trim();
+        const cleanedJson = jsonString.replace(/^```json\s*|```$/g, '');
+        const parsed = JSON.parse(cleanedJson);
+        if (Array.isArray(parsed)) {
+            return parsed.filter(item => 
+                item.label && typeof item.label === 'string' &&
+                item.box && typeof item.box.x1 === 'number' &&
+                typeof item.score === 'number'
+            );
+        }
+        return [];
+    } catch (e) {
+        console.error("Failed to parse object detection JSON:", e, "Raw response:", response.text);
+        return [];
+    }
 };

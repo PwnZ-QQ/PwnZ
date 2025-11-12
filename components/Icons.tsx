@@ -127,3 +127,39 @@ export const PlayIcon = () => (
       <path d="M8 5v14l11-7z" />
     </svg>
 );
+
+export const BoundingBoxIcon = ({isActive}: {isActive: boolean}) => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+        <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+        <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+        <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+        {isActive && <path d="M12 8v8m-4-4h8" />}
+    </svg>
+);
+
+
+// For AITaskSelector
+export const AnalyzeIcon = () => (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M15.5 2.5a2.5 2.5 0 0 0-3.5 0L8.5 6H5a2 2 0 0 0-2 2v3.5L6.5 15a2.5 2.5 0 0 0 3.5 0L13.5 18H17a2 2 0 0 0 2-2v-3.5Z"/><path d="m14 7 3-3"/><path d="m11 10 3-3"/>
+    </svg>
+);
+
+export const ScanIcon = () => (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><path d="M7 12h10" />
+    </svg>
+);
+
+export const RecipeIcon = () => (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/><path d="M13 11.5 10 13l-2-2.5"/>
+    </svg>
+);
+
+export const TranslateIcon = () => (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m18 22 4-4"/><path d="m14 22 4-4"/><path d="M10 14h12"/>
+    </svg>
+);

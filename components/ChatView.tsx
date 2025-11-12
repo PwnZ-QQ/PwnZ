@@ -9,7 +9,7 @@ import LiveConversationOverlay from './LiveConversationOverlay';
 import { SendIcon, MicIcon, CloseIcon, LoadingSpinner, SearchIcon, MapIcon } from './Icons';
 
 const ChatView: React.FC = () => {
-  const { imageForChat, clearImageForChat } = useAppStore();
+  const { imageForChat, clearImageForChat, initialChatPrompt, clearInitialChatPrompt } = useAppStore();
 
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [messages, setMessages] = useState<AiChatMessage[]>([]);
@@ -26,6 +26,13 @@ const ChatView: React.FC = () => {
   useEffect(() => {
     setAttachedImage(imageForChat);
   }, [imageForChat]);
+
+  useEffect(() => {
+    if (initialChatPrompt) {
+        setInput(initialChatPrompt);
+        clearInitialChatPrompt();
+    }
+  }, [initialChatPrompt, clearInitialChatPrompt]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

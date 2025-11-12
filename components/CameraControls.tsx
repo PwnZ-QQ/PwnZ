@@ -31,7 +31,7 @@ const CameraControls: React.FC<CameraControlsProps> = ({ mode, setMode, onShutte
             disabled={isRecording}
           >
             <span className={cn('relative z-10 transition-colors duration-300', mode === m && !isRecording ? 'text-black' : 'text-white')}>
-              {m.toUpperCase()}
+              {m === 'vision' ? 'AI VISION' : m.toUpperCase()}
             </span>
             {mode === m && (
               <motion.div 
@@ -67,11 +67,17 @@ const CameraControls: React.FC<CameraControlsProps> = ({ mode, setMode, onShutte
         <motion.button 
             id="onboarding-shutter"
             onClick={onShutter} 
-            className="w-20 h-20 rounded-full bg-black/50 flex items-center justify-center p-1"
+            disabled={isRecording || mode === 'vision'}
+            className="w-20 h-20 rounded-full bg-black/50 flex items-center justify-center p-1 disabled:opacity-50"
             whileTap={{ scale: 0.9 }}
             transition={{ type: 'spring', stiffness: 400, damping: 17 }}
         >
-          <div className={cn('w-full h-full border-4 border-black/50 transition-all duration-200', shutterColor, isRecording ? 'rounded-xl' : 'rounded-full')} />
+          <div className={cn(
+              'w-full h-full border-4 border-black/50 transition-all duration-200', 
+              shutterColor, 
+              isRecording ? 'rounded-xl' : 'rounded-full',
+              mode === 'vision' && !isRecording && 'bg-gray-600'
+            )} />
         </motion.button>
 
         <motion.button 

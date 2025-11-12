@@ -6,9 +6,11 @@ interface AppState {
   appView: AppView;
   imageForChat: string | null;
   gallery: GalleryItem[];
+  initialChatPrompt: string | null;
   setView: (view: AppView) => void;
-  setImageForChat: (image: string) => void;
+  setImageForChat: (image: string, initialPrompt?: string) => void;
   clearImageForChat: () => void;
+  clearInitialChatPrompt: () => void;
   addToGallery: (item: GalleryItem) => void;
   removeFromGallery: (index: number) => void;
 }
@@ -34,9 +36,15 @@ export const useAppStore = create<AppState>((set) => ({
   appView: 'camera',
   imageForChat: null,
   gallery: getInitialGallery(),
+  initialChatPrompt: null,
   setView: (view) => set({ appView: view }),
-  setImageForChat: (image) => set({ imageForChat: image, appView: 'chat' }),
+  setImageForChat: (image, initialPrompt = '') => set({ 
+    imageForChat: image, 
+    appView: 'chat',
+    initialChatPrompt: initialPrompt || null,
+  }),
   clearImageForChat: () => set({ imageForChat: null }),
+  clearInitialChatPrompt: () => set({ initialChatPrompt: null }),
   addToGallery: (item) => set((state) => {
       const newGallery = [item, ...state.gallery];
       try {

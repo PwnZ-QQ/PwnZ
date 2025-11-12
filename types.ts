@@ -20,3 +20,15 @@ export interface GroundingSource {
     uri: string;
     title: string;
 }
+
+export interface DetectedObject {
+  label: string;
+  box: {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  };
+  score?: number;
+  manual?: boolean;
+}
