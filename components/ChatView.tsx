@@ -67,10 +67,16 @@ const ChatView: React.FC = () => {
         const imagePart = currentImage ? { mimeType: 'image/jpeg', data: currentImage.split(',')[1] } : null;
         const response = await generateChatResponse(currentInput, imagePart, { useSearch, useMaps, location: location ?? undefined });
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-        const sources: GroundingSource[] = groundingChunks?.map((chunk: any) => ({
-            uri: chunk.web?.uri || chunk.maps?.uri,
-            title: chunk.web?.title || chunk.maps?.title
-        })).filter((s: any) => s.uri) ?? [];
+        
+        const sources: GroundingSource[] = groundingChunks?.map((chunk: any) => {
+            if (chunk.web && chunk.web.uri) {
+                return { type: 'web', uri: chunk.web.uri, title: chunk.web.title || '' };
+            }
+            if (chunk.maps && chunk.maps.uri) {
+                return { type: 'maps', uri: chunk.maps.uri, title: chunk.maps.title || '' };
+            }
+            return null;
+        }).filter((s: any): s is GroundingSource => s !== null) ?? [];
         
         const botMessage: AiChatMessage = { sender: 'bot', text: response.text, sources };
         setMessages(prev => [...prev, botMessage]);
@@ -106,22 +112,30 @@ const ChatView: React.FC = () => {
                     <p className="text-sm">Go to the Camera tab and use VISION mode to start a conversation about an image.</p>
                 </div>
             )}
-            {messages.map((msg, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-              >
-                <Message message={msg} />
-              </motion.div>
-            ))}
+            {messages.map((msg, index) => {
+              const isUser = msg.sender === 'user';
+              return (
+                <motion.div
+                  key={index}
+                  initial={{ opacity: 0, y: 10, x: isUser ? 20 : -20 }}
+                  animate={{ opacity: 1, y: 0, x: 0 }}
+                  transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+                >
+                  <Message message={msg} />
+                </motion.div>
+              );
+            })}
             {isLoading && (
-                <div className="flex justify-start">
+                <motion.div
+                    initial={{ opacity: 0, y: 10, x: -20 }}
+                    animate={{ opacity: 1, y: 0, x: 0 }}
+                    transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+                    className="flex justify-start"
+                >
                     <div className="bg-gray-700 rounded-2xl p-3">
                         <LoadingSpinner />
                     </div>
-                </div>
+                </motion.div>
             )}
             <div ref={messagesEndRef} />
         </div>
@@ -136,7 +150,7 @@ const ChatView: React.FC = () => {
                 </div>
             )}
             <div className="flex items-center space-x-2">
-                <div className="flex-1 bg-gray-800 border border-gray-700 rounded-full flex items-center pr-2">
+                <div id="onboarding-chat-input" className="flex-1 bg-gray-800 border border-gray-700 rounded-full flex items-center pr-2">
                     <input
                         type="text"
                         value={input}
@@ -146,13 +160,15 @@ const ChatView: React.FC = () => {
                         className="flex-1 bg-transparent px-4 py-3 text-white placeholder-gray-400 focus:outline-none"
                         disabled={isLoading}
                     />
-                    <button onClick={() => setUseSearch(!useSearch)}><SearchIcon active={useSearch} /></button>
-                    <button onClick={() => setUseMaps(!useMaps)} className="ml-2"><MapIcon active={useMaps} /></button>
+                    <div id="onboarding-ai-tools" className="flex items-center">
+                      <button onClick={() => setUseSearch(!useSearch)}><SearchIcon active={useSearch} /></button>
+                      <button onClick={() => setUseMaps(!useMaps)} className="ml-2"><MapIcon active={useMaps} /></button>
+                    </div>
                 </div>
                 <button onClick={handleSend} disabled={isLoading || !input.trim()} className="p-3 bg-yellow-500 text-black rounded-full disabled:bg-gray-600">
                     <SendIcon />
                 </button>
-                 <button onClick={() => setIsLiveOpen(true)} className="p-3 rounded-full bg-gray-700 text-white">
+                 <button id="onboarding-mic" onClick={() => setIsLiveOpen(true)} className="p-3 rounded-full bg-gray-700 text-white">
                     <MicIcon isListening={false} />
                 </button>
             </div>

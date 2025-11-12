@@ -1,7 +1,13 @@
 
 export type CameraMode = 'photo' | 'video' | 'vision';
-export type AppView = 'camera' | 'chat';
+export type AppView = 'camera' | 'chat' | 'gallery';
 export type FlashMode = 'off' | 'on' | 'auto';
+export type MediaType = 'photo' | 'video';
+
+export interface GalleryItem {
+  type: MediaType;
+  src: string;
+}
 
 export interface AiChatMessage {
   sender: 'user' | 'bot';
@@ -10,6 +16,7 @@ export interface AiChatMessage {
 }
 
 export interface GroundingSource {
+    type: 'web' | 'maps';
     uri: string;
     title: string;
 }

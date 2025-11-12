@@ -1,8 +1,8 @@
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import type { AiChatMessage } from '../types';
 import { cn } from '../utils/cn';
-import { SpeakerIcon, LoadingSpinner } from './Icons';
+import { SpeakerIcon, LoadingSpinner, SearchIcon, MapIcon } from './Icons';
 import { textToSpeech } from '../services/geminiService';
 import { decode, decodeAudioData } from '../utils/audioUtils';
 
@@ -14,6 +14,12 @@ const Message: React.FC<MessageProps> = ({ message }) => {
   const isUser = message.sender === 'user';
   const [isSpeaking, setIsSpeaking] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+
+  const { webSources, mapSources } = useMemo(() => {
+    const webSources = message.sources?.filter(s => s.type === 'web');
+    const mapSources = message.sources?.filter(s => s.type === 'maps');
+    return { webSources, mapSources };
+  }, [message.sources]);
 
   const handleSpeak = async () => {
     if (isSpeaking || !message.text) return;
@@ -58,20 +64,52 @@ const Message: React.FC<MessageProps> = ({ message }) => {
           </button>
         )}
       </div>
-      {message.sources && message.sources.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2 max-w-xs md:max-w-md">
-              {message.sources.map((source, index) => (
-                  <a 
-                    href={source.uri} 
-                    key={index}
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-xs bg-gray-800 text-blue-300 px-2 py-1 rounded-full truncate hover:underline"
-                    title={source.title || source.uri}
-                  >
-                    {new URL(source.uri).hostname}
-                  </a>
-              ))}
+      {((webSources && webSources.length > 0) || (mapSources && mapSources.length > 0)) && (
+          <div className="mt-2 space-y-3 max-w-xs md:max-w-md">
+              {webSources && webSources.length > 0 && (
+                <div className="border-l-2 border-gray-700 pl-2">
+                    <h4 className="text-xs font-semibold text-gray-400 mb-1 flex items-center">
+                        <SearchIcon active={true} size={14} /> 
+                        <span className="ml-1.5">Sources from the web</span>
+                    </h4>
+                    <div className="flex flex-col items-start gap-1">
+                        {webSources.map((source, index) => (
+                            <a 
+                                href={source.uri} 
+                                key={`web-${index}`}
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-400 hover:underline"
+                                title={source.title || source.uri}
+                            >
+                               <p className="truncate">{source.title || new URL(source.uri).hostname}</p>
+                            </a>
+                        ))}
+                    </div>
+                </div>
+              )}
+              {mapSources && mapSources.length > 0 && (
+                <div className="border-l-2 border-gray-700 pl-2">
+                     <h4 className="text-xs font-semibold text-gray-400 mb-1 flex items-center">
+                        <MapIcon active={true} size={14} /> 
+                        <span className="ml-1.5">Places from Maps</span>
+                     </h4>
+                     <div className="flex flex-col items-start gap-1">
+                        {mapSources.map((source, index) => (
+                            <a 
+                                href={source.uri} 
+                                key={`map-${index}`}
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-xs text-green-400 hover:underline"
+                                title={source.title || source.uri}
+                            >
+                                <p className="truncate">{source.title || new URL(source.uri).hostname}</p>
+                            </a>
+                        ))}
+                    </div>
+                </div>
+              )}
           </div>
       )}
     </div>
