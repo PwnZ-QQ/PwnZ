@@ -97,6 +97,8 @@ const CameraView: React.FC = () => {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   
+  const [isRateLimited, setIsRateLimited] = useState(false);
+  
   // Vision mode state
   const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
   const [sensitivity, setSensitivity] = useState(0.5);
@@ -118,6 +120,7 @@ const CameraView: React.FC = () => {
   const pinchDistRef = useRef<number>(0);
   const currentZoomRef = useRef<number>(1);
   const focusTimeoutRef = useRef<number | null>(null);
+  const rateLimitTimeoutRef = useRef<number | null>(null);
 
   const handleCameraError = useCallback((err: any) => {
     let message = "An unknown error occurred while trying to access the camera. Please try again.";
@@ -234,7 +237,13 @@ const CameraView: React.FC = () => {
       
       if (!videoRef.current || videoRef.current.readyState < 2 || document.visibilityState !== 'visible') {
         // If conditions are not met, reschedule the check after a delay without making an API call.
-        timeoutId = window.setTimeout(analyzeFrame, 2500);
+        timeoutId = window.setTimeout(analyzeFrame, 5000);
+        return;
+      }
+      
+      // If rate limited, don't make an API call. Just poll again later.
+      if (isRateLimited) {
+        timeoutId = window.setTimeout(analyzeFrame, 5000);
         return;
       }
 
@@ -260,12 +269,20 @@ const CameraView: React.FC = () => {
                 return newLabels;
             });
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error("Object detection failed:", e);
+        const errorMessage = typeof e === 'object' && e !== null ? JSON.stringify(e) : String(e);
+        if (isActive && errorMessage.includes('RESOURCE_EXHAUSTED')) {
+            setIsRateLimited(true);
+            if (rateLimitTimeoutRef.current) clearTimeout(rateLimitTimeoutRef.current);
+            rateLimitTimeoutRef.current = window.setTimeout(() => {
+                setIsRateLimited(false);
+            }, 60000); // Wait 60 seconds
+        }
       } finally {
         // Schedule the next analysis call only after the current one finishes.
         if (isActive) {
-            timeoutId = window.setTimeout(analyzeFrame, 2500);
+            timeoutId = window.setTimeout(analyzeFrame, 5000); // Increased to 5s
         }
       }
     };
@@ -278,9 +295,10 @@ const CameraView: React.FC = () => {
     return () => {
       isActive = false;
       if (timeoutId) clearTimeout(timeoutId);
+      if (rateLimitTimeoutRef.current) clearTimeout(rateLimitTimeoutRef.current);
       setDetectedObjects([]);
     };
-  }, [mode, stream]);
+  }, [mode, stream, isRateLimited]);
 
   const filteredObjects = useMemo(() => {
     let objects = detectedObjects.filter(obj => obj.manual || (obj.score ?? 1.0) >= sensitivity);
@@ -829,6 +847,7 @@ const CameraView: React.FC = () => {
                 onFilterToggle={handleFilterToggle}
                 onManualTag={() => setIsTagging(!isTagging)}
                 isTagging={isTagging}
+                isRateLimited={isRateLimited}
             />
         )}
       </AnimatePresence>
@@ -880,37 +899,26 @@ const CameraView: React.FC = () => {
                     transition={{ type: 'spring', stiffness: 300, damping: 25 }}
                     onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
                 >
-                    <div className="flex justify-between items-start mb-4">
+                    <div className="flex justify-between items-start mb-2">
                         <h2 className="text-2xl font-bold text-yellow-400 capitalize">{selectedObject.label}</h2>
                         <button onClick={() => setSelectedObject(null)} className="p-1 -mr-1 -mt-1"><CloseIcon /></button>
                     </div>
 
-                    <div className="space-y-4 text-sm">
+                    {selectedObject.description && (
+                        <p className="my-4 text-base text-gray-200">{selectedObject.description}</p>
+                    )}
+                    
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
                         {selectedObject.category && (
-                            <div className="flex items-start">
-                                <CategoryIcon className="w-5 h-5 mr-3 mt-0.5 text-gray-400" />
-                                <div>
-                                    <p className="font-semibold text-gray-400">Category</p>
-                                    <p>{selectedObject.category}</p>
-                                </div>
+                            <div className="flex items-center gap-1.5 bg-gray-700/80 px-2.5 py-1 rounded-full">
+                                <CategoryIcon className="w-4 h-4 text-gray-400" />
+                                <span>{selectedObject.category}</span>
                             </div>
                         )}
                         {selectedObject.score && !selectedObject.manual && (
-                            <div className="flex items-start">
-                                <PercentIcon className="w-5 h-5 mr-3 mt-0.5 text-gray-400" />
-                                <div>
-                                    <p className="font-semibold text-gray-400">Confidence</p>
-                                    <p>{(selectedObject.score * 100).toFixed(0)}%</p>
-                                </div>
-                            </div>
-                        )}
-                        {selectedObject.description && (
-                            <div className="flex items-start">
-                                <InfoIcon className="w-5 h-5 mr-3 mt-0.5 text-gray-400" />
-                                <div>
-                                    <p className="font-semibold text-gray-400">Description</p>
-                                    <p>{selectedObject.description}</p>
-                                </div>
+                            <div className="flex items-center gap-1.5 bg-gray-700/80 px-2.5 py-1 rounded-full">
+                                <PercentIcon className="w-4 h-4 text-gray-400" />
+                                <span>{(selectedObject.score * 100).toFixed(0)}% Confidence</span>
                             </div>
                         )}
                     </div>

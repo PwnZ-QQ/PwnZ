@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { BoundingBoxIcon } from './Icons';
 import { cn } from '../utils/cn';
 
@@ -11,6 +11,7 @@ interface VisionControlsProps {
   onFilterToggle: (label: string) => void;
   onManualTag: () => void;
   isTagging: boolean;
+  isRateLimited: boolean;
 }
 
 const VisionControls: React.FC<VisionControlsProps> = ({
@@ -21,6 +22,7 @@ const VisionControls: React.FC<VisionControlsProps> = ({
   onFilterToggle,
   onManualTag,
   isTagging,
+  isRateLimited,
 }) => {
   return (
     <motion.div
@@ -30,6 +32,19 @@ const VisionControls: React.FC<VisionControlsProps> = ({
       exit={{ y: '100%' }}
       transition={{ type: 'tween', ease: 'easeInOut', duration: 0.3 }}
     >
+      <AnimatePresence>
+        {isRateLimited && (
+          <motion.div
+            className="mb-3 p-2 text-center bg-red-900/50 border border-red-500/50 rounded-lg"
+            initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+            animate={{ opacity: 1, height: 'auto', marginBottom: '0.75rem' }}
+            exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <p className="text-xs text-red-300">AI analysis is paused due to high demand. It will resume in a minute.</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* Sensitivity Slider */}
       <div className="mb-3">
         <label htmlFor="sensitivity" className="text-xs text-gray-300 block mb-1">
